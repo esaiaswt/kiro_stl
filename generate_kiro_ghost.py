@@ -63,29 +63,53 @@ def make_pillow(outline, thickness, n_slices=32):
     return np.array(verts, dtype=np.float64), np.array(faces)
 
 
-def make_eye(cx, cy, cz, rx, rz, depth, su=12, sv=8):
-    """Eye indent (concave - goes INTO the surface toward +Y)."""
+def make_eye(cx, cy, cz, rx, rz, depth, su=24):
+    """
+    Eye as an oval cylinder pushed INTO the surface (toward +Y).
+    Creates an elliptical cylinder with:
+    - An outer rim ring at the surface (y = cy)
+    - A back face ring pushed inward (y = cy + depth)
+    - Side walls connecting them
+    - A flat back cap
+    Normals point inward (concave indent).
+    """
     verts, faces = [], []
-    for i in range(sv+1):
-        phi = (math.pi/2)*i/sv
-        for j in range(su):
-            theta = 2*math.pi*j/su
-            x = cx + rx*math.cos(phi)*math.cos(theta)
-            z = cz + rz*math.cos(phi)*math.sin(theta)
-            y = cy + depth*math.sin(phi)  # +Y = INTO surface (concave)
-            verts.append([x, y, z])
-    for i in range(sv):
-        for j in range(su):
-            nj = (j+1)%su
-            p1,p2 = i*su+j, i*su+nj
-            p3,p4 = (i+1)*su+j, (i+1)*su+nj
-            # Reversed winding for concave surface (normals point inward)
-            faces.append([p1,p4,p2]); faces.append([p1,p3,p4])
-    ci = len(verts); verts.append([cx, cy+depth, cz])
-    lr = sv*su
+    
+    # Ring at surface (front rim)
     for j in range(su):
-        nj=(j+1)%su
-        faces.append([lr+j, ci, lr+nj])  # reversed winding
+        theta = 2 * math.pi * j / su
+        x = cx + rx * math.cos(theta)
+        z = cz + rz * math.sin(theta)
+        verts.append([x, cy, z])  # indices 0..su-1
+    
+    # Ring at depth (back of cylinder)
+    for j in range(su):
+        theta = 2 * math.pi * j / su
+        x = cx + rx * math.cos(theta)
+        z = cz + rz * math.sin(theta)
+        verts.append([x, cy + depth, z])  # indices su..2*su-1
+    
+    # Back cap center
+    ci = len(verts)
+    verts.append([cx, cy + depth, cz])  # index 2*su
+    
+    # Side walls (connecting front ring to back ring)
+    # Winding reversed so normals point inward (into the hole)
+    for j in range(su):
+        nj = (j + 1) % su
+        p1 = j          # front ring
+        p2 = nj         # front ring next
+        p3 = su + j     # back ring
+        p4 = su + nj    # back ring next
+        faces.append([p1, p4, p2])
+        faces.append([p1, p3, p4])
+    
+    # Back cap (flat ellipse at depth)
+    # Winding so normal points toward -Y (facing outward from inside the hole)
+    for j in range(su):
+        nj = (j + 1) % su
+        faces.append([ci, su + j, su + nj])
+    
     return np.array(verts, dtype=np.float64), np.array(faces)
 
 
@@ -178,7 +202,7 @@ def combine(parts):
 
 
 def main():
-    print("Kiro Ghost v14 - Doubled stem + base chamfer")
+    print("Kiro Ghost v15 - Oval cylinder eyes pushed into surface")
     
     # Use the traced outline directly
     outline = list(KIRO_OUTLINE)
@@ -224,17 +248,54 @@ def main():
     re_x, re_z = RIGHT_EYE[0], RIGHT_EYE[1] + z_off
     le_w, le_h = LEFT_EYE_SIZE[0] / 2, LEFT_EYE_SIZE[1] / 2
     re_w, re_h = RIGHT_EYE_SIZE[0] / 2, RIGHT_EYE_SIZE[1] / 2
-    # Eyes: need to be ON the front surface of the pillow body
-    # The pillow surface at any point follows: Y_surface = -half_t * (1 - scale_at_that_depth)
-    # At the front-most point of the body, scale=1 at Y=0 (center)
-    # The actual front surface where the body is full-size and starts curving away
-    # is approximately at Y = -half_t + half_t * 0.12 = -9.7mm (where min scale kicks in)
-    # But visually the "front" of a pillow is at about Y = -half_t * 0.85
-    # Let's place eyes where the surface is still substantial
-    eye_y = -(thickness / 2) * 0.82  # slightly inside the front curve (~-9mm)
+    # Eyes: need to be flush with the front surface of the pillow body.
+    # The pillow front surface Y depends on the scale factor at that slice.
+    # At the very front (j=0), scale s = sin(0)^0.55 clamped to 0.12, so the
+    # front-most Y where the outline reaches full scale is found by solving
+    # for the slice where the eye's (x,z) point lies ON the scaled outline.
+    # 
+    # Approximation: find what fraction of the centroid-to-outline distance
+    # the eye center is at, then find the front Y where that scale applies.
+    half_t = thickness / 2
+    n_slices_build = 40  # must match what we built the pillow with
+    cx_body = sum(p[0] for p in outline) / len(outline)
+    cz_body = sum(p[1] for p in outline) / len(outline)
     
-    left_eye_v, left_eye_f = make_eye(le_x, eye_y, le_z, le_w, le_h, 2.5)
-    right_eye_v, right_eye_f = make_eye(re_x, eye_y, re_z, re_w, re_h, 2.5)
+    def find_surface_y(ex, ez):
+        """Find the Y of the front surface at point (ex, ez) by checking pillow geometry."""
+        # Distance from centroid to eye point
+        dx = ex - cx_body
+        dz = ez - cz_body
+        dist_eye = math.sqrt(dx*dx + dz*dz)
+        # Find the outline point closest in angle to the eye
+        angle_eye = math.atan2(dz, dx)
+        best_dist = 0
+        for px, pz in outline:
+            a = math.atan2(pz - cz_body, px - cx_body)
+            if abs(a - angle_eye) < 0.05 or abs(a - angle_eye) > 2*math.pi - 0.05:
+                d = math.sqrt((px-cx_body)**2 + (pz-cz_body)**2)
+                if d > best_dist:
+                    best_dist = d
+        if best_dist == 0:
+            best_dist = dist_eye * 1.2
+        # The eye needs scale s such that s * best_dist >= dist_eye
+        # i.e. s >= dist_eye / best_dist
+        s_needed = dist_eye / best_dist
+        s_needed = max(s_needed, 0.12)
+        # Find the front-most slice (smallest j) where s >= s_needed
+        # s = sin(j/n_slices * pi) ^ 0.55, and we want the FRONT side (j < n_slices/2)
+        # Solve: sin(t*pi)^0.55 = s_needed => t = arcsin(s_needed^(1/0.55)) / pi
+        inner = min(s_needed ** (1.0/0.55), 1.0)
+        t = math.asin(inner) / math.pi
+        y_surface = -half_t + thickness * t
+        return y_surface
+    
+    le_surface_y = find_surface_y(le_x, le_z)
+    re_surface_y = find_surface_y(re_x, re_z)
+    
+    eye_depth = 10.0  # oval cylinder pushed 10mm into the surface for visible 3D print
+    left_eye_v, left_eye_f = make_eye(le_x, le_surface_y, le_z, le_w, le_h, eye_depth)
+    right_eye_v, right_eye_f = make_eye(re_x, re_surface_y, re_z, re_w, re_h, eye_depth)
     
     # Combine and save
     parts = [
@@ -248,7 +309,7 @@ def main():
     print(f"  Total height: ~{total_h:.0f}mm")
     print(f"  Pillar: diameter {pillar_r*2:.0f}mm (doubled), chamfer {chamfer_r_bottom*2:.0f}mm base")
     print(f"  Saved: kiro_ghost.stl")
-    print(f"\n  v14: Doubled stem diameter + base chamfer for strength")
+    print(f"\n  v15: Oval cylinder eyes pushed into body surface")
 
 
 if __name__ == '__main__':
