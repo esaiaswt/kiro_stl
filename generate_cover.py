@@ -217,16 +217,77 @@ def main():
     print(f"  Flange: {flange_w}x{flange_h}x{flange_depth}mm")
     print(f"  Text: '{text_str}' engraved {text_depth}mm deep")
     
-    # --- Create plug (goes inside cavity) ---
-    plug = trimesh.primitives.Box(extents=[plug_w, plug_depth, plug_h])
-    plug.apply_translation([0, -plug_depth/2, 0])  # plug extends in -Y direction
+    # --- Create plug (goes inside cavity) - with filleted leading edges ---
+    # Use a slightly smaller box and subtract rounded edges using cylinders
+    plug_mesh = trimesh.primitives.Box(extents=[plug_w, plug_depth, plug_h])
+    plug_mesh.apply_translation([0, -plug_depth/2, 0])  # plug extends in -Y direction
     
-    # --- Create flange (sits on outside surface) ---
-    flange = trimesh.primitives.Box(extents=[flange_w, flange_depth, flange_h])
-    flange.apply_translation([0, flange_depth/2, 0])  # flange extends in +Y direction
+    # Fillet the plug's leading edges (the 4 long edges at Y=-plug_depth end)
+    # by subtracting rounded cylinders from the corners
+    fillet_r = 1.5  # 1.5mm fillet radius
+    # Create fillet by subtracting a "negative fillet" shape from corners
+    # Easier: create the plug with rounded cross-section using convex hull approach
+    # Actually, use boolean intersection with a rounded box
+    # Simplest approach: subtract 4 corner strips from the plug
+    plug_corners = []
+    for sx in [-1, 1]:
+        for sz in [-1, 1]:
+            # Corner strip along Y axis at plug edges
+            corner_box = trimesh.primitives.Box(extents=[fillet_r*2, plug_depth+1, fillet_r*2])
+            corner_box.apply_translation([
+                sx * (plug_w/2), 
+                -plug_depth/2, 
+                sz * (plug_h/2)
+            ])
+            # Cylinder to keep (the rounded part)
+            corner_cyl = trimesh.primitives.Cylinder(
+                radius=fillet_r, height=plug_depth+1, sections=16)
+            rot = trimesh.transformations.rotation_matrix(math.pi/2, [1, 0, 0])
+            corner_cyl.apply_transform(rot)
+            corner_cyl.apply_translation([
+                sx * (plug_w/2 - fillet_r),
+                -plug_depth/2,
+                sz * (plug_h/2 - fillet_r)
+            ])
+            # Subtract box, add cylinder back = fillet
+            fillet_cut = trimesh.boolean.difference([corner_box, corner_cyl], engine='manifold')
+            plug_corners.append(fillet_cut)
+    
+    for fc in plug_corners:
+        plug_mesh = trimesh.boolean.difference([plug_mesh, fc], engine='manifold')
+    
+    # --- Create flange (sits on outside surface) - with filleted outer edges ---
+    flange_mesh = trimesh.primitives.Box(extents=[flange_w, flange_depth, flange_h])
+    flange_mesh.apply_translation([0, flange_depth/2, 0])  # flange extends in +Y direction
+    
+    # Fillet the flange's outer edges (4 edges on the +Y face)
+    flange_fillet_r = 2.0  # 2mm fillet on flange
+    flange_corners = []
+    for sx in [-1, 1]:
+        for sz in [-1, 1]:
+            corner_box = trimesh.primitives.Box(extents=[flange_fillet_r*2, flange_depth+1, flange_fillet_r*2])
+            corner_box.apply_translation([
+                sx * (flange_w/2),
+                flange_depth/2,
+                sz * (flange_h/2)
+            ])
+            corner_cyl = trimesh.primitives.Cylinder(
+                radius=flange_fillet_r, height=flange_depth+1, sections=16)
+            rot = trimesh.transformations.rotation_matrix(math.pi/2, [1, 0, 0])
+            corner_cyl.apply_transform(rot)
+            corner_cyl.apply_translation([
+                sx * (flange_w/2 - flange_fillet_r),
+                flange_depth/2,
+                sz * (flange_h/2 - flange_fillet_r)
+            ])
+            fillet_cut = trimesh.boolean.difference([corner_box, corner_cyl], engine='manifold')
+            flange_corners.append(fillet_cut)
+    
+    for fc in flange_corners:
+        flange_mesh = trimesh.boolean.difference([flange_mesh, fc], engine='manifold')
     
     # --- Combine plug and flange ---
-    cover = trimesh.util.concatenate([plug, flange])
+    cover = trimesh.boolean.union([plug_mesh, flange_mesh], engine='manifold')
     cover.fix_normals()
     
     # --- Create text as RAISED/EMBOSSED letters (much more visible) ---
