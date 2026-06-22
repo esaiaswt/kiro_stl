@@ -408,7 +408,7 @@ def main():
                 break
         return max_safe_z
 
-    tube_z_bottom = box_z_bottom + box_h  # start from box ceiling (top of magnetic box)
+    tube_z_bottom = clearance - 1.0  # start 1mm below body bottom for clean opening
 
     print(f"  LED tubes: 4x {led_tube_r * 2:.0f}mm diameter")
 
