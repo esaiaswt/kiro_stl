@@ -229,31 +229,29 @@ def main():
     cover = trimesh.util.concatenate([plug, flange])
     cover.fix_normals()
     
-    # --- Create text for engraving (proper font rendering) ---
-    text_mesh = create_text_mesh(text_str, target_width=58.0, depth=text_depth + 1.0)
+    # --- Create text as RAISED/EMBOSSED letters (much more visible) ---
+    text_mesh = create_text_mesh(text_str, target_width=58.0, depth=1.5)
     
     if text_mesh is not None:
         # Text mesh is in XY plane extruded along Z, centered at origin.
-        # Rotate so text face is in XZ plane (visible from +Y direction)
-        # and extrusion goes along -Y (into the flange from outside)
+        # Rotate so text face is in XZ plane and extrusion goes along +Y (outward)
         rot = trimesh.transformations.rotation_matrix(-math.pi/2, [1, 0, 0])
         text_mesh.apply_transform(rot)
         
-        # Position on outer face of flange
-        text_mesh.apply_translation([0, flange_depth - text_depth + 0.5, 0])
+        # Position on outer face of flange (text protrudes outward from Y=flange_depth)
+        text_mesh.apply_translation([0, flange_depth, 0])
         
-        # Boolean subtract text from cover
-        print("  Engraving text...")
+        # UNION text with cover (raised text, not subtracted)
+        print("  Adding raised text...")
         try:
-            cover = trimesh.boolean.difference([cover, text_mesh], engine='manifold')
+            cover = trimesh.boolean.union([cover, text_mesh], engine='manifold')
             if not cover.is_watertight:
-                # Fix mesh if not watertight
                 trimesh.repair.fix_winding(cover)
                 trimesh.repair.fill_holes(cover)
-            print(f"  Text engraved successfully (watertight: {cover.is_watertight})")
+            print(f"  Raised text added (watertight: {cover.is_watertight})")
         except Exception as e:
-            print(f"  Text engraving failed: {e}")
-            print("  Saving cover without text engraving")
+            print(f"  Text union failed: {e}")
+            print("  Saving cover without text")
     
     # --- Save ---
     cover.export('kiro_cover.stl')
