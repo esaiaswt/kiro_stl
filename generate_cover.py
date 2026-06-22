@@ -116,9 +116,27 @@ def create_text_mesh(text, target_width=60.0, depth=2.0):
         except:
             pass
 
-    # Extrude each polygon and combine
+    if not polygons:
+        return None
+
+    # Separate outer boundaries from holes (counters in D, A, o, e, g, b, K)
+    polygons.sort(key=lambda p: p.area, reverse=True)
+    outers = []
+    holes = []
+    for i, poly in enumerate(polygons):
+        is_hole = False
+        for j in range(i):
+            if polygons[j].contains(poly.centroid):
+                is_hole = True
+                break
+        if is_hole:
+            holes.append(poly)
+        else:
+            outers.append(poly)
+
+    # Extrude outer boundaries
     meshes = []
-    for poly in polygons:
+    for poly in outers:
         try:
             m = extrude_polygon(poly, height=depth)
             meshes.append(m)
@@ -129,6 +147,15 @@ def create_text_mesh(text, target_width=60.0, depth=2.0):
         return None
 
     text_3d = trimesh.util.concatenate(meshes)
+
+    # Subtract holes (letter counters)
+    for hole in holes:
+        try:
+            hole_mesh = extrude_polygon(hole, height=depth + 1.0)
+            hole_mesh.apply_translation([0, 0, -0.5])
+            text_3d = trimesh.boolean.difference([text_3d, hole_mesh], engine='manifold')
+        except:
+            pass
 
     # Scale to fit target width
     bounds = text_3d.bounds
