@@ -527,34 +527,37 @@ def main():
         result = trimesh.boolean.difference([result, tube_m], engine='manifold')
 
     # Subtract eye cavities (proper oval cylinders, 7mm depth)
+    # Start eyes OUTSIDE the front surface to punch cleanly through the front cap
     eye_depth_fixed = 7.0  # 7mm depth as requested
-    for eye_x, eye_y, eye_z, eye_rx, eye_rz in [
-        (le_x, le_surface_y_val, le_z, le_w, le_h),
-        (re_x, re_surface_y_val, re_z, re_w, re_h),
+    eye_start_y = -half_t - 1.0  # start 1mm outside front surface
+    for eye_x, eye_z, eye_rx, eye_rz in [
+        (le_x, le_z, le_w, le_h),
+        (re_x, re_z, re_w, re_h),
     ]:
         # Build oval cylinder manually with proper elliptical cross-section
         n_seg = 48  # smooth oval
         # Create an elliptical prism (oval cylinder) along Y axis
         oval_verts = []
         oval_faces = []
-        # Front ring (at eye surface)
+        # Front ring (outside front surface)
         for i in range(n_seg):
             angle = 2 * math.pi * i / n_seg
             x = eye_x + eye_rx * math.cos(angle)
             z = eye_z + eye_rz * math.sin(angle)
-            oval_verts.append([x, eye_y, z])
-        # Back ring (depth into body)
+            oval_verts.append([x, eye_start_y, z])
+        # Back ring (7mm + extra into body)
+        eye_end_y = eye_start_y + eye_depth_fixed + 2.0  # extra 2mm to ensure clean cut
         for i in range(n_seg):
             angle = 2 * math.pi * i / n_seg
             x = eye_x + eye_rx * math.cos(angle)
             z = eye_z + eye_rz * math.sin(angle)
-            oval_verts.append([x, eye_y + eye_depth_fixed, z])
+            oval_verts.append([x, eye_end_y, z])
         # Front cap center
         fc = len(oval_verts)
-        oval_verts.append([eye_x, eye_y, eye_z])
+        oval_verts.append([eye_x, eye_start_y, eye_z])
         # Back cap center
         bc = len(oval_verts)
-        oval_verts.append([eye_x, eye_y + eye_depth_fixed, eye_z])
+        oval_verts.append([eye_x, eye_end_y, eye_z])
         # Side faces
         for i in range(n_seg):
             ni = (i + 1) % n_seg
