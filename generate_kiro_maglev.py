@@ -526,27 +526,58 @@ def main():
     for tube_m in tube_meshes:
         result = trimesh.boolean.difference([result, tube_m], engine='manifold')
 
-    # Subtract eye cavities (approximated as boxes for simplicity)
-    for eye_x, eye_y, eye_z, eye_rx, eye_rz, eye_depth_val in [
-        (le_x, le_surface_y_val, le_z, le_w, le_h, scaled_eye_depth),
-        (re_x, re_surface_y_val, re_z, re_w, re_h, scaled_eye_depth),
+    # Subtract eye cavities (proper oval cylinders, 7mm depth)
+    eye_depth_fixed = 7.0  # 7mm depth as requested
+    for eye_x, eye_y, eye_z, eye_rx, eye_rz in [
+        (le_x, le_surface_y_val, le_z, le_w, le_h),
+        (re_x, re_surface_y_val, re_z, re_w, re_h),
     ]:
-        # Create eye cavity as a scaled cylinder mesh (not a primitive)
-        eye_cyl = trimesh.primitives.Cylinder(radius=1.0, height=1.0, sections=24)
-        eye_mesh = eye_cyl.to_mesh()
-        # Scale: X by eye_rx, Y by depth, Z by eye_rz
-        eye_mesh.vertices[:, 0] *= eye_rx
-        eye_mesh.vertices[:, 1] *= eye_depth_val
-        eye_mesh.vertices[:, 2] *= eye_rz
-        # Position: center at (eye_x, eye_y + depth/2, eye_z)
-        eye_mesh.vertices[:, 0] += eye_x
-        eye_mesh.vertices[:, 1] += eye_y + eye_depth_val / 2
-        eye_mesh.vertices[:, 2] += eye_z
+        # Build oval cylinder manually with proper elliptical cross-section
+        n_seg = 48  # smooth oval
+        # Create an elliptical prism (oval cylinder) along Y axis
+        oval_verts = []
+        oval_faces = []
+        # Front ring (at eye surface)
+        for i in range(n_seg):
+            angle = 2 * math.pi * i / n_seg
+            x = eye_x + eye_rx * math.cos(angle)
+            z = eye_z + eye_rz * math.sin(angle)
+            oval_verts.append([x, eye_y, z])
+        # Back ring (depth into body)
+        for i in range(n_seg):
+            angle = 2 * math.pi * i / n_seg
+            x = eye_x + eye_rx * math.cos(angle)
+            z = eye_z + eye_rz * math.sin(angle)
+            oval_verts.append([x, eye_y + eye_depth_fixed, z])
+        # Front cap center
+        fc = len(oval_verts)
+        oval_verts.append([eye_x, eye_y, eye_z])
+        # Back cap center
+        bc = len(oval_verts)
+        oval_verts.append([eye_x, eye_y + eye_depth_fixed, eye_z])
+        # Side faces
+        for i in range(n_seg):
+            ni = (i + 1) % n_seg
+            oval_faces.append([i, ni, n_seg + ni])
+            oval_faces.append([i, n_seg + ni, n_seg + i])
+        # Front cap
+        for i in range(n_seg):
+            ni = (i + 1) % n_seg
+            oval_faces.append([fc, i, ni])
+        # Back cap
+        for i in range(n_seg):
+            ni = (i + 1) % n_seg
+            oval_faces.append([bc, n_seg + ni, n_seg + i])
+
+        eye_mesh = trimesh.Trimesh(
+            vertices=np.array(oval_verts),
+            faces=np.array(oval_faces)
+        )
         eye_mesh.fix_normals()
         try:
             result = trimesh.boolean.difference([result, eye_mesh], engine='manifold')
         except Exception as e:
-            print(f"    Eye subtraction skipped: {e}")
+            print(f"    Eye subtraction failed: {e}")
 
     # Save result
     result.export('kiro_ghost_maglev.stl')
