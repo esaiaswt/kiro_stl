@@ -301,7 +301,29 @@ def main():
     outline = [(x, z + z_shift) for x, z in outline]
 
     # Keep original outline WITH TOES (signature Kiro curls).
-    # The box is positioned above the toe area (Z=30+) where the body is solid.
+    # Fill toe gaps ONLY at the box Z level (Z=28.5-40.5) so body is solid for the box.
+    # Below Z=28.5, the 3 toes remain fully visible.
+    box_z_top = clearance + 13.5 + box_h  # 40.5mm
+    box_z_bot = clearance + 13.5  # 28.5mm
+    fill_margin = 2.0  # fill slightly beyond box for wall thickness
+
+    # Find the minimum width needed at the box level
+    min_fill_x = -(box_w / 2 + wall_min)  # -36mm
+    max_fill_x = box_w / 2 + wall_min     # +36mm
+
+    # Fill concavities only between box_z_bot and box_z_top + margin
+    # Remove points that are INSIDE the needed width at box Z level,
+    # then add edge points to create a solid outline there
+    filled_outline = []
+    for x, z in outline:
+        if box_z_bot - fill_margin <= z <= box_z_top + fill_margin:
+            # At box Z level: keep points that are OUTSIDE the fill zone
+            if x <= min_fill_x or x >= max_fill_x:
+                filled_outline.append((x, z))
+            # Skip internal concavity points (they break the solid)
+        else:
+            filled_outline.append((x, z))
+    outline = filled_outline
 
     ghost_min_z = min(p[1] for p in outline)
     ghost_max_z = max(p[1] for p in outline)
@@ -317,14 +339,9 @@ def main():
     # Single cavity extending from box position to rear surface.
     # This creates a slot accessible from the rear - the box slides in from behind.
     # Cavity: 62mm(X) x depth(Y) x 12mm(Z), open at rear face.
-    cx_ghost = sum(p[0] for p in outline) / len(outline)
+    cx_ghost = 0.0  # center box at X=0 (outline is roughly symmetric above toes)
 
     box_z_bottom = clearance + 13.5  # 28.5mm (13.5mm gap from body bottom)
-    # Shift box X-center to match outline center at box Z level (asymmetric outline)
-    # This balances wall thickness on both sides
-    pts_at_box_z = [(x, z) for x, z in outline if box_z_bottom - 2 <= z <= box_z_bottom + box_h + 2]
-    if pts_at_box_z:
-        cx_ghost = (max(p[0] for p in pts_at_box_z) + min(p[0] for p in pts_at_box_z)) / 2
     box_cy_front = -box_l / 2  # -31mm (where box front face sits)
     half_t_body = thickness / 2  # 42.5mm (rear surface)
 
