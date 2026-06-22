@@ -319,7 +319,7 @@ def main():
     # Cavity: 62mm(X) x depth(Y) x 12mm(Z), open at rear face.
     cx_ghost = sum(p[0] for p in outline) / len(outline)  # ~0
 
-    box_z_bottom = clearance + 15.0  # 30mm (15mm gap from body bottom)
+    box_z_bottom = clearance + 13.5  # 28.5mm (13.5mm gap from body bottom)
     box_cy_front = -box_l / 2  # -31mm (where box front face sits)
     half_t_body = thickness / 2  # 42.5mm (rear surface)
 
