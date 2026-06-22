@@ -270,18 +270,18 @@ def main():
     needed_xy = box_w + 2 * wall_min  # 72mm
     scale_x = needed_xy / orig_w
     scale_y = needed_xy / orig_thickness
-    # Use the larger scale to ensure both X and Y fit the box
-    scale = max(scale_x, scale_y)
+    # Use scale 2.4x - minimum that fits box with adequate wall thickness
+    scale = 2.4
 
     print(f"  Original: {orig_w:.1f}mm W x {orig_h:.1f}mm H x {orig_thickness:.1f}mm thick")
     print(f"  Scale factor: {scale:.2f}x (to fit {box_w}x{box_l}mm box + {wall_min}mm walls)")
 
     # Scaled dimensions
     # Use capsule profile: flat middle (full width) with rounded front/back caps
-    # Thickness 85mm gives 63.75mm flat region (fits 62mm box) with nice rounded edges
-    thickness = 85.0  # capsule thickness
+    # Thickness 73mm - minimum to contain 62mm box with capsule rounding
+    thickness = 73.0  # capsule thickness
     pillow_min_scale = 0.12
-    flat_fraction = 0.75  # 75% flat, 12.5% rounded cap each end
+    flat_fraction = 0.86  # 86% flat region = 62.8mm (just fits 62mm box)
     scaled_w = orig_w * scale
     scaled_h = orig_h * scale
 
