@@ -270,8 +270,8 @@ def main():
     needed_xy = box_w + 2 * wall_min  # 72mm
     scale_x = needed_xy / orig_w
     scale_y = needed_xy / orig_thickness
-    # Use scale 2.4x - minimum that fits box with adequate wall thickness
-    scale = 2.4
+    # Use scale 2.6x - gives 4.8mm wall on thinnest side at box level
+    scale = 2.6
 
     print(f"  Original: {orig_w:.1f}mm W x {orig_h:.1f}mm H x {orig_thickness:.1f}mm thick")
     print(f"  Scale factor: {scale:.2f}x (to fit {box_w}x{box_l}mm box + {wall_min}mm walls)")
