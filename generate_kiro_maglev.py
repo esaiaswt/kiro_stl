@@ -317,9 +317,14 @@ def main():
     # Single cavity extending from box position to rear surface.
     # This creates a slot accessible from the rear - the box slides in from behind.
     # Cavity: 62mm(X) x depth(Y) x 12mm(Z), open at rear face.
-    cx_ghost = sum(p[0] for p in outline) / len(outline)  # ~0
+    cx_ghost = sum(p[0] for p in outline) / len(outline)
 
     box_z_bottom = clearance + 13.5  # 28.5mm (13.5mm gap from body bottom)
+    # Shift box X-center to match outline center at box Z level (asymmetric outline)
+    # This balances wall thickness on both sides
+    pts_at_box_z = [(x, z) for x, z in outline if box_z_bottom - 2 <= z <= box_z_bottom + box_h + 2]
+    if pts_at_box_z:
+        cx_ghost = (max(p[0] for p in pts_at_box_z) + min(p[0] for p in pts_at_box_z)) / 2
     box_cy_front = -box_l / 2  # -31mm (where box front face sits)
     half_t_body = thickness / 2  # 42.5mm (rear surface)
 
