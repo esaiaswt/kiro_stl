@@ -314,47 +314,38 @@ def main():
                                    profile="capsule", flat_fraction=flat_fraction)
 
     # --- Magnetic box cavity ---
-    # Box is 62x62x12mm (X x Y x Z), horizontal face in XY plane.
-    # Centered in body (Y=0). Accessed from rear via 62x12mm opening.
-    # The box slides in along Y axis from the back.
+    # Single cavity extending from box position to rear surface.
+    # This creates a slot accessible from the rear - the box slides in from behind.
+    # Cavity: 62mm(X) x depth(Y) x 12mm(Z), open at rear face.
     cx_ghost = sum(p[0] for p in outline) / len(outline)  # ~0
 
-    # Box centered at Y=0 for center of gravity
-    # Box bottom at Z=30 (15mm gap from body bottom - at limit)
-    # This places the box ABOVE the toe/curl area where body is solid
-    box_z_bottom = clearance + 15.0  # 30mm (15mm gap, exactly at limit)
-    box_cy = 0.0  # centered in Y
+    box_z_bottom = clearance + 15.0  # 30mm (15mm gap from body bottom)
+    box_cy_front = -box_l / 2  # -31mm (where box front face sits)
+    half_t_body = thickness / 2  # 42.5mm (rear surface)
 
-    print(f"  Box cavity: {box_w}x{box_l}x{box_h}mm, centered in body, rear access")
-    print(f"  Box position: X=[{cx_ghost - box_w/2:.1f},{cx_ghost + box_w/2:.1f}], "
-          f"Y=[{box_cy - box_l/2:.1f},{box_cy + box_l/2:.1f}], "
-          f"Z=[{box_z_bottom:.1f},{box_z_bottom + box_h:.1f}]mm")
+    # The cavity extends from box front (Y=-31) to rear surface (Y=42.5)
+    # Centered in X at cx_ghost, open at rear (+Y face)
+    cavity_depth_y = half_t_body - box_cy_front  # 73.5mm total depth
+    cavity_cy = (box_cy_front + half_t_body) / 2  # center of cavity in Y
 
-    # Box cavity open at rear (+Y face)
-    cavity_v, cavity_f = make_box_cavity(cx_ghost, box_cy, box_z_bottom, box_w, box_l, box_h, open_face="rear")
+    print(f"  Box cavity: {box_w}x{cavity_depth_y:.1f}x{box_h}mm slot, open at rear")
+    print(f"  Slot Y range: {box_cy_front:.1f} to {half_t_body:.1f}mm")
+    print(f"  Box slides in from rear, sits at Y=[{box_cy_front:.1f}, {box_cy_front + box_l:.1f}]")
+    print(f"  Z range: [{box_z_bottom:.1f}, {box_z_bottom + box_h:.1f}]mm")
 
-    # Rear insertion channel: 62mm(X) x 12mm(Z) slot from box rear face to rear surface.
-    # This creates the passage and opening for sliding the box in from the back.
-    # In 3D printing, the slicer only prints solid regions - channel geometry 
-    # beyond the body surface naturally forms the rear opening.
-    half_t_body = thickness / 2
-    channel_y_start = box_cy + box_l / 2  # 31mm (box rear face)
-    channel_y_end = half_t_body + 1.0  # past rear surface for clean through-opening
-    channel_v, channel_f = make_insertion_channel(
-        cx_ghost, channel_y_start, channel_y_end, box_z_bottom, box_w, box_h)
-
-    print(f"  Rear opening: {box_w}x{box_h}mm (62x12mm) slot from Y={channel_y_start:.0f} to rear")
+    cavity_v, cavity_f = make_box_cavity(
+        cx_ghost, cavity_cy, box_z_bottom,
+        box_w, cavity_depth_y, box_h, open_face="rear")
 
     # --- LED tubes at box corners ---
-    # LED tubes at the 4 corners of the box (all centered in body, well inside)
+    # LED tubes at the 4 corners of where the box sits (Y=-31 to Y=+31)
     half_box_x = box_w / 2
-    half_box_y = box_l / 2
     led_inset = led_tube_r + 2.0  # 6mm inset from box edge
     led_positions = [
-        (cx_ghost - half_box_x + led_inset, box_cy - half_box_y + led_inset),
-        (cx_ghost + half_box_x - led_inset, box_cy - half_box_y + led_inset),
-        (cx_ghost + half_box_x - led_inset, box_cy + half_box_y - led_inset),
-        (cx_ghost - half_box_x + led_inset, box_cy + half_box_y - led_inset),
+        (cx_ghost - half_box_x + led_inset, box_cy_front + led_inset),
+        (cx_ghost + half_box_x - led_inset, box_cy_front + led_inset),
+        (cx_ghost + half_box_x - led_inset, box_cy_front + box_l - led_inset),
+        (cx_ghost - half_box_x + led_inset, box_cy_front + box_l - led_inset),
     ]
 
     # Tubes go from box bottom up to where the body surface is at that XY position.
@@ -489,7 +480,6 @@ def main():
     parts = [
         (ghost_v, ghost_f),
         (cavity_v, cavity_f),
-        (channel_v, channel_f),
         (left_eye_v, left_eye_f),
         (right_eye_v, right_eye_f),
     ]
