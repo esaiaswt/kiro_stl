@@ -328,16 +328,20 @@ def main():
     box_cy_front = -box_l / 2  # -31mm (where box front face sits)
     half_t_body = thickness / 2  # 42.5mm (rear surface)
 
-    # The cavity extends from box front (Y=-31) to rear surface (Y=42.5)
-    # Centered in X at cx_ghost, open at rear (+Y face)
-    cavity_depth_y = half_t_body - box_cy_front  # 73.5mm total depth
-    cavity_cy = (box_cy_front + half_t_body) / 2  # center of cavity in Y
+    # The cavity extends from box front (Y=-31) to the edge of the flat region.
+    # Beyond the flat region, the body caps taper and can't contain the cavity.
+    # The boolean subtraction will create a natural opening where cavity meets body surface.
+    half_t_body = thickness / 2  # 36.5mm
+    flat_half = thickness * flat_fraction / 2  # 33.6mm (edge of flat region)
+    cavity_y_rear = flat_half + 1.0  # extend 1mm past flat edge to ensure clean opening
+    cavity_depth_y = cavity_y_rear - box_cy_front  # from box front to flat edge
 
-    print(f"  Box cavity: {box_w}x{cavity_depth_y:.1f}x{box_h}mm slot, open at rear")
-    print(f"  Slot Y range: {box_cy_front:.1f} to {half_t_body:.1f}mm")
+    print(f"  Box cavity: {box_w}x{cavity_depth_y:.1f}x{box_h}mm slot")
+    print(f"  Slot Y range: {box_cy_front:.1f} to {cavity_y_rear:.1f}mm")
     print(f"  Box slides in from rear, sits at Y=[{box_cy_front:.1f}, {box_cy_front + box_l:.1f}]")
     print(f"  Z range: [{box_z_bottom:.1f}, {box_z_bottom + box_h:.1f}]mm")
 
+    cavity_cy = (box_cy_front + cavity_y_rear) / 2  # center of cavity in Y
     cavity_v, cavity_f = make_box_cavity(
         cx_ghost, cavity_cy, box_z_bottom,
         box_w, cavity_depth_y, box_h, open_face="rear")
