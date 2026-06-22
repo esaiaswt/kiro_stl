@@ -97,7 +97,7 @@ def create_block_text(text, char_height=5.0, depth=0.5):
     # Define simplified block letters as list of (x, z, w, h) rectangles
     # Coordinates relative to character origin (bottom-left)
     cw, ch = char_width, char_height
-    sw = cw * 0.2  # stroke width
+    sw = cw * 0.3  # stroke width (thicker for visibility)
     
     font = {
         'D': [(0,0,sw,ch), (0,ch-sw,cw*0.7,sw), (0,0,cw*0.7,sw), (cw*0.7,sw,sw,ch-2*sw)],
@@ -149,10 +149,10 @@ def main():
     
     flange_w = 66.0  # flange wider than cavity (2mm lip each side)
     flange_h = 16.0  # flange taller (2mm lip top and bottom)
-    flange_depth = 2.5  # flange thickness
+    flange_depth = 3.0  # flange thickness (must be > text_depth)
     
     text_str = "Design by AWS Kiro"
-    text_depth = 0.8  # engraving depth
+    text_depth = 1.5  # deeper engraving for visibility
     
     print(f"  Cavity opening: {cavity_w}x{cavity_h}mm")
     print(f"  Plug: {plug_w}x{plug_h}x{plug_depth}mm")
@@ -172,7 +172,7 @@ def main():
     cover.fix_normals()
     
     # --- Create text for engraving ---
-    text_mesh, text_width = create_block_text(text_str, char_height=4.0, depth=text_depth + 0.5)
+    text_mesh, text_width = create_block_text(text_str, char_height=7.0, depth=text_depth + 0.5)
     
     if text_mesh is not None:
         # Center text on flange outer face
@@ -192,7 +192,11 @@ def main():
         print("  Engraving text...")
         try:
             cover = trimesh.boolean.difference([cover, text_mesh], engine='manifold')
-            print("  Text engraved successfully")
+            if not cover.is_watertight:
+                # Fix mesh if not watertight
+                trimesh.repair.fix_winding(cover)
+                trimesh.repair.fill_holes(cover)
+            print(f"  Text engraved successfully (watertight: {cover.is_watertight})")
         except Exception as e:
             print(f"  Text engraving failed: {e}")
             print("  Saving cover without text engraving")
