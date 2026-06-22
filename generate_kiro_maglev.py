@@ -476,25 +476,88 @@ def main():
 
     print(f"  Eyes: {le_w * 2:.1f}x{le_h * 2:.1f}mm oval, {scaled_eye_depth:.1f}mm deep")
 
-    # --- Combine all parts ---
-    parts = [
-        (ghost_v, ghost_f),
-        (cavity_v, cavity_f),
-        (left_eye_v, left_eye_f),
-        (right_eye_v, right_eye_f),
-    ]
-    parts.extend(tube_parts)
+    # --- Combine body, then boolean subtract cavities ---
+    import trimesh
 
-    m = combine(parts)
-    m.save('kiro_ghost_maglev.stl')
+    # Build the solid body
+    body_mesh = combine([(ghost_v, ghost_f)])
+    body_trimesh = trimesh.Trimesh(
+        vertices=np.array([[v[0], v[1], v[2]] for f in body_mesh.vectors for v in f]).reshape(-1, 3),
+        faces=np.arange(len(body_mesh.vectors) * 3).reshape(-1, 3)
+    )
+    body_trimesh.merge_vertices()
+    body_trimesh.fix_normals()
+
+    # Create the cavity box for boolean subtraction (solid box to subtract)
+    # Cavity: 62mm(X) x 73.5mm(Y) x 12mm(Z), from Y=-31 to Y=42.5, Z=30-42
+    cavity_box = trimesh.primitives.Box(
+        extents=[box_w, cavity_depth_y, box_h],
+        transform=trimesh.transformations.translation_matrix([
+            cx_ghost, (box_cy_front + half_t_body) / 2, box_z_bottom + box_h / 2
+        ])
+    )
+
+    # Create LED tube cylinders to subtract
+    tube_meshes = []
+    for i, (lx, ly) in enumerate(led_positions):
+        tube_z_top_val = get_tube_max_z(lx, ly, led_tube_r)
+        tube_z_top_val -= 3.0
+        tube_height = tube_z_top_val - tube_z_bottom
+        if tube_height > 0:
+            cyl = trimesh.primitives.Cylinder(
+                radius=led_tube_r,
+                height=tube_height,
+                transform=trimesh.transformations.translation_matrix([
+                    lx, ly, tube_z_bottom + tube_height / 2
+                ])
+            )
+            tube_meshes.append(cyl)
+            print(f"    Tube {i + 1}: x={lx:.1f}, y={ly:.1f}, z={tube_z_bottom:.1f} to {tube_z_top_val:.1f}mm")
+
+    # Create eye cylinders to subtract
+    le_surface_y_val = find_surface_y(le_x, le_z)
+    re_surface_y_val = find_surface_y(re_x, re_z)
+    scaled_eye_depth = eye_depth * scale
+
+    # Boolean subtraction: body - cavity - tubes - eyes
+    print("\n  Performing boolean subtraction...")
+    result = trimesh.boolean.difference([body_trimesh, cavity_box], engine='manifold')
+
+    for tube_m in tube_meshes:
+        result = trimesh.boolean.difference([result, tube_m], engine='manifold')
+
+    # Subtract eye cavities (approximated as boxes for simplicity)
+    for eye_x, eye_y, eye_z, eye_rx, eye_rz, eye_depth_val in [
+        (le_x, le_surface_y_val, le_z, le_w, le_h, scaled_eye_depth),
+        (re_x, re_surface_y_val, re_z, re_w, re_h, scaled_eye_depth),
+    ]:
+        # Create eye cavity as a scaled cylinder mesh (not a primitive)
+        eye_cyl = trimesh.primitives.Cylinder(radius=1.0, height=1.0, sections=24)
+        eye_mesh = eye_cyl.to_mesh()
+        # Scale: X by eye_rx, Y by depth, Z by eye_rz
+        eye_mesh.vertices[:, 0] *= eye_rx
+        eye_mesh.vertices[:, 1] *= eye_depth_val
+        eye_mesh.vertices[:, 2] *= eye_rz
+        # Position: center at (eye_x, eye_y + depth/2, eye_z)
+        eye_mesh.vertices[:, 0] += eye_x
+        eye_mesh.vertices[:, 1] += eye_y + eye_depth_val / 2
+        eye_mesh.vertices[:, 2] += eye_z
+        eye_mesh.fix_normals()
+        try:
+            result = trimesh.boolean.difference([result, eye_mesh], engine='manifold')
+        except Exception as e:
+            print(f"    Eye subtraction skipped: {e}")
+
+    # Save result
+    result.export('kiro_ghost_maglev.stl')
 
     print(f"\n  SUMMARY:")
     print(f"  Total height: {ghost_max_z:.1f}mm (top of ghost)")
     print(f"  Width: {scaled_w:.1f}mm, Thickness: {thickness:.1f}mm")
     print(f"  Platform clearance: {clearance}mm")
-    print(f"  Magnetic box: {box_w}x{box_l}x{box_h}mm cavity (rear access via channel)")
-    print(f"  LED tubes: 4x 8mm diameter (open top and bottom)")
-    print(f"  Saved: kiro_ghost_maglev.stl")
+    print(f"  Magnetic box: {box_w}x{box_l}x{box_h}mm cavity (rear access, boolean cut)")
+    print(f"  LED tubes: 4x 8mm diameter (boolean cut)")
+    print(f"  Saved: kiro_ghost_maglev.stl ({len(result.faces)} faces)")
 
 
 if __name__ == '__main__':
