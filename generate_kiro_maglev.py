@@ -281,7 +281,7 @@ def main():
     # Thickness 73mm - minimum to contain 62mm box with capsule rounding
     thickness = 73.0  # capsule thickness
     pillow_min_scale = 0.12
-    flat_fraction = 0.86  # 86% flat region = 62.8mm (just fits 62mm box)
+    flat_fraction = 0.92  # 92% flat region = 67.2mm (covers box 62mm with margin)
     scaled_w = orig_w * scale
     scaled_h = orig_h * scale
 
