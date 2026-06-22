@@ -69,22 +69,80 @@ def create_rounded_box(width, height, depth, corner_radius=1.5, segments=8):
     return mesh
 
 
-def create_text_mesh(text, font_size=5.0, depth=0.5):
-    """Create 3D text mesh for engraving using trimesh's text generation."""
-    try:
-        # Try to create text path and extrude
-        from trimesh.path import Path2D
-        from trimesh.creation import extrude_polygon
-        from shapely.geometry import MultiPolygon
-        import shapely
-        
-        # Create 2D text
-        text_path = trimesh.path.entities.Text(text)
-        # This may not work on all systems, fallback below
-        raise ImportError("Use fallback")
-    except (ImportError, Exception):
-        # Fallback: create simple block letters
-        return create_block_text(text, font_size, depth)
+def create_text_mesh(text, target_width=60.0, depth=2.0):
+    """Create 3D text mesh using matplotlib font rendering."""
+    from shapely.geometry import Polygon
+    from matplotlib.textpath import TextPath
+    from matplotlib.font_manager import FontProperties
+    from trimesh.creation import extrude_polygon
+    import matplotlib.path as mpath
+
+    fp = FontProperties(family='sans-serif', weight='bold')
+    tp = TextPath((0, 0), text, size=10, prop=fp)
+
+    verts = tp.vertices
+    codes = tp.codes
+
+    # Convert matplotlib path to shapely polygons
+    polygons = []
+    current_poly = []
+    for v, c in zip(verts, codes):
+        if c == mpath.Path.MOVETO:
+            if len(current_poly) > 2:
+                try:
+                    p = Polygon(current_poly)
+                    if p.is_valid and p.area > 0.1:
+                        polygons.append(p)
+                except:
+                    pass
+            current_poly = [v.tolist()]
+        elif c in (mpath.Path.LINETO, mpath.Path.CURVE3, mpath.Path.CURVE4):
+            current_poly.append(v.tolist())
+        elif c == mpath.Path.CLOSEPOLY:
+            if len(current_poly) > 2:
+                try:
+                    p = Polygon(current_poly)
+                    if p.is_valid and p.area > 0.1:
+                        polygons.append(p)
+                except:
+                    pass
+            current_poly = []
+
+    if len(current_poly) > 2:
+        try:
+            p = Polygon(current_poly)
+            if p.is_valid and p.area > 0.1:
+                polygons.append(p)
+        except:
+            pass
+
+    # Extrude each polygon and combine
+    meshes = []
+    for poly in polygons:
+        try:
+            m = extrude_polygon(poly, height=depth)
+            meshes.append(m)
+        except:
+            pass
+
+    if not meshes:
+        return None
+
+    text_3d = trimesh.util.concatenate(meshes)
+
+    # Scale to fit target width
+    bounds = text_3d.bounds
+    text_w = bounds[1][0] - bounds[0][0]
+    scale_factor = target_width / text_w
+
+    text_3d.apply_scale(scale_factor)
+
+    # Center at origin
+    bounds = text_3d.bounds
+    center = (bounds[0] + bounds[1]) / 2
+    text_3d.apply_translation(-center)
+
+    return text_3d
 
 
 def create_block_text(text, char_height=5.0, depth=0.5):
@@ -171,22 +229,18 @@ def main():
     cover = trimesh.util.concatenate([plug, flange])
     cover.fix_normals()
     
-    # --- Create text for engraving ---
-    text_mesh, text_width = create_block_text(text_str, char_height=7.0, depth=text_depth + 0.5)
+    # --- Create text for engraving (proper font rendering) ---
+    text_mesh = create_text_mesh(text_str, target_width=58.0, depth=text_depth + 1.0)
     
     if text_mesh is not None:
-        # Center text on flange outer face
-        # Text is currently at origin, needs to be moved to flange outer face
-        text_bounds = text_mesh.bounds
-        text_center_x = (text_bounds[0][0] + text_bounds[1][0]) / 2
-        text_center_z = (text_bounds[0][2] + text_bounds[1][2]) / 2
+        # Text mesh is in XY plane extruded along Z, centered at origin.
+        # Rotate so text face is in XZ plane (visible from +Y direction)
+        # and extrusion goes along -Y (into the flange from outside)
+        rot = trimesh.transformations.rotation_matrix(-math.pi/2, [1, 0, 0])
+        text_mesh.apply_transform(rot)
         
-        # Move text to center of flange, on outer face (Y = flange_depth)
-        text_mesh.apply_translation([
-            -text_center_x,  # center X
-            flange_depth - text_depth/2,  # on outer face
-            -text_center_z   # center Z
-        ])
+        # Position on outer face of flange
+        text_mesh.apply_translation([0, flange_depth - text_depth + 0.5, 0])
         
         # Boolean subtract text from cover
         print("  Engraving text...")
