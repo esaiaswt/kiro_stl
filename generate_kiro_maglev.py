@@ -14,11 +14,13 @@ import math
 from kiro_outline_data import KIRO_OUTLINE
 
 
-def make_pillow(outline, thickness, n_slices=32, min_scale=0.12):
+def make_pillow(outline, thickness, n_slices=32, min_scale=0.12, profile="pillow", flat_fraction=0.75):
     """
-    Inflate 2D outline into 3D pillow using centroid scaling.
-    Scale tapers to near-zero at front/back edges for smooth rounding.
-    min_scale controls how much the body tapers at the edges (higher = fatter).
+    Inflate 2D outline into 3D shape using centroid scaling.
+    
+    profile options:
+    - "pillow": sin^0.55 taper (egg/oval from side)
+    - "capsule": flat middle with rounded caps at front/back (stadium from side)
     """
     n = len(outline)
     half_t = thickness / 2
@@ -31,9 +33,25 @@ def make_pillow(outline, thickness, n_slices=32, min_scale=0.12):
     for j in range(n_slices + 1):
         t = j / n_slices
         y = -half_t + thickness * t
-        # Pillow profile: full at center, tapers at edges
-        s = math.sin(t * math.pi) ** 0.55
-        s = max(s, min_scale)
+
+        if profile == "capsule":
+            cap_size = (1.0 - flat_fraction) / 2
+            if t < cap_size:
+                # Front cap rounding
+                t_in_cap = t / cap_size
+                s = math.sin(t_in_cap * math.pi / 2) ** 0.55
+                s = max(s, min_scale)
+            elif t > 1.0 - cap_size:
+                # Rear cap rounding
+                t_in_cap = (1.0 - t) / cap_size
+                s = math.sin(t_in_cap * math.pi / 2) ** 0.55
+                s = max(s, min_scale)
+            else:
+                s = 1.0
+        else:
+            # Original pillow profile
+            s = math.sin(t * math.pi) ** 0.55
+            s = max(s, min_scale)
 
         for i in range(n):
             px, pz = outline[i]
@@ -259,10 +277,11 @@ def main():
     print(f"  Scale factor: {scale:.2f}x (to fit {box_w}x{box_l}mm box + {wall_min}mm walls)")
 
     # Scaled dimensions
-    # Enlarge thickness to 130mm to hide 62mm box inside the pillow body
-    # while maintaining the pillow shape (min_scale=0.12, sin^0.55 taper)
-    thickness = 130.0  # wider sides to contain 62mm box in Y direction
-    pillow_min_scale = 0.12  # keep original pillow taper for 3D shape
+    # Use capsule profile: flat middle (full width) with rounded front/back caps
+    # Thickness 85mm gives 63.75mm flat region (fits 62mm box) with nice rounded edges
+    thickness = 85.0  # capsule thickness
+    pillow_min_scale = 0.12
+    flat_fraction = 0.75  # 75% flat, 12.5% rounded cap each end
     scaled_w = orig_w * scale
     scaled_h = orig_h * scale
 
@@ -290,7 +309,9 @@ def main():
     print(f"  Clearance above platform: {clearance}mm")
 
     # --- Build ghost body (no base/stem) ---
-    ghost_v, ghost_f = make_pillow(outline, thickness, n_slices=40, min_scale=pillow_min_scale)
+    ghost_v, ghost_f = make_pillow(outline, thickness, n_slices=40,
+                                   min_scale=pillow_min_scale,
+                                   profile="capsule", flat_fraction=flat_fraction)
 
     # --- Magnetic box cavity ---
     # Box is 62x62x12mm (X x Y x Z), horizontal face in XY plane.
@@ -359,11 +380,20 @@ def main():
 
     def get_tube_max_z(tx, ty, tube_radius):
         """Find max Z where full tube circle is inside the pillow body at (tx, ty)."""
-        # Get the pillow scale at this Y position
+        # Get the capsule scale at this Y position
         t_slice = (ty + half_t) / thickness
         t_slice = max(0.0, min(1.0, t_slice))
-        s = math.sin(t_slice * math.pi) ** 0.55
-        s = max(s, pillow_min_scale)
+        cap_size = (1.0 - flat_fraction) / 2
+        if t_slice < cap_size:
+            t_in_cap = t_slice / cap_size
+            s = math.sin(t_in_cap * math.pi / 2) ** 0.55
+            s = max(s, pillow_min_scale)
+        elif t_slice > 1.0 - cap_size:
+            t_in_cap = (1.0 - t_slice) / cap_size
+            s = math.sin(t_in_cap * math.pi / 2) ** 0.55
+            s = max(s, pillow_min_scale)
+        else:
+            s = 1.0
         # Compute the scaled outline at this Y slice
         scaled_outline = [(cx_body + (px - cx_body) * s, cz_body + (pz - cz_body) * s)
                           for px, pz in outline]
@@ -415,7 +445,7 @@ def main():
     # Find front surface Y for each eye (reusing half_t, cx_body, cz_body from above)
 
     def find_surface_y(ex, ez):
-        """Find the Y of the front surface at point (ex, ez)."""
+        """Find the Y of the front surface at point (ex, ez) for capsule profile."""
         dx = ex - cx_body
         dz = ez - cz_body
         dist_eye = math.sqrt(dx * dx + dz * dz)
@@ -431,8 +461,17 @@ def main():
             best_dist = dist_eye * 1.2
         s_needed = dist_eye / best_dist
         s_needed = max(s_needed, pillow_min_scale)
-        inner = min(s_needed ** (1.0 / 0.55), 1.0)
-        t = math.asin(inner) / math.pi
+        # For capsule: if s_needed <= 1.0, the point is in the flat region
+        # The front surface is at the start of the flat region
+        cap_size = (1.0 - flat_fraction) / 2
+        if s_needed >= 1.0:
+            # Point is at full scale - surface is at start of flat region
+            t = cap_size
+        else:
+            # Point needs some taper - it's in the front cap
+            inner = min(s_needed ** (1.0 / 0.55), 1.0)
+            t_in_cap = math.asin(inner) / (math.pi / 2)
+            t = t_in_cap * cap_size
         y_surface = -half_t + thickness * t
         return y_surface
 
